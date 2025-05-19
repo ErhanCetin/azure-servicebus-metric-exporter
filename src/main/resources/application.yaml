@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: azure-servicebus-metric-exporter
+  mvc:
+    contentnegotiation:
+      favor-parameter: false
+      defaultContentType: application/json
+server:
+  port: 8080
+  shutdown: graceful
+  profiles:
+    active: local
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus, info
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+azure:
+  servicebus:
+    auth:
+      mode: connection_string
+      connection-string:  ${AZURE_SERVICEBUS_CONNECTION_STRING}
+
+    entities:
+      # Regular expression to filter entities e.g. "dev-.*"
+      filter: ".*"
+      # Entity types to collect metrics for
+      types:
+        - queue
+        - topic
+        - subscription
+
+    # Include namespace metrics
+    include-namespace-metrics: true
+
+    # Metrics settings
+    metrics:
+      # Cache duration
+      cache-duration: 60s
+      # Collection interval
+      scrape-interval: 60s
+
+logging:
+  level:
+    root: INFO

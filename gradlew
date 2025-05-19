@@ -249,3 +249,16 @@ eval "set -- $(
     )" '"$@"'
 
 exec "$JAVACMD" "$@"
+
+
+# Build the application
+./gradlew clean build
+
+# Run the application
+java -jar build/libs/azure-servicebus-metric-exporter-1.0.0.jar
+
+# Run with Spring Boot plugin
+./gradlew bootRun
+
+# Build the Docker image
+./gradlew bootBuildImage --imageName=yourregistry/azure-servicebus-metric-exporter:latest
