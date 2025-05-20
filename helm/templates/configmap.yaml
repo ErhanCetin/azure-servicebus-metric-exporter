@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "azure-servicebus-metric-exporter.fullname" . }}-config
+  labels:
+    {{- include "azure-servicebus-metric-exporter.labels" . | nindent 4 }}
+data:
+  application.yaml: |-
+    server:
+      port: 8080
+      shutdown: graceful
+    
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health, prometheus, info
+      metrics:
+        export:
+          prometheus:
+            enabled: true
+      endpoint:
+        health:
+          show-details: always
+          probes:
+            enabled: true
+    
+    azure:
+      servicebus:
+        environment: ${ENVIRONMENT:{{ .Values.env.ENVIRONMENT }}}
+        auth:
+          mode: connection_string
+          connection-string: ${AZURE_SERVICEBUS_CONNECTION_STRING}
+        entities:
+          filter: {{ .Values.azureServiceBus.entities.filter | quote }}
+          types:
+          {{- range .Values.azureServiceBus.entities.types }}
+            - {{ . }}
+          {{- end }}
+        include-namespace-metrics: {{ .Values.azureServiceBus.includeNamespaceMetrics }}
+        metrics:
+          cache-duration: {{ .Values.azureServiceBus.metrics.cacheDuration }}
+          scrape-interval: {{ .Values.azureServiceBus.metrics.scrapeInterval }}
+    
+    logging:
+      level:
+        root: INFO
+        gavgas.azureservicebusmetricexporter: INFO

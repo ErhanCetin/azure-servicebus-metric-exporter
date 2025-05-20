@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
  */
 @Data
 @Configuration
-@Validated  // Doğrulama etkinleştir
+@Validated
 @ConfigurationProperties(prefix = "azure.servicebus")
 public class ServiceBusProperties {
 
@@ -36,6 +36,11 @@ public class ServiceBusProperties {
      */
     private Metrics metrics = new Metrics();
 
+    /**
+     * Environment name to be included in metrics tags.
+     * Default: "default"
+     */
+    private String environment = "default";
 
     /**
      * Whether to include namespace-level metrics.

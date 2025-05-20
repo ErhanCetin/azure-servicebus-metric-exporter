@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-servicebus-exporter-config
+  namespace: monitoring
+data:
+  application.yaml: |
+    server:
+      port: 8080
+      shutdown: graceful
+    
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health, prometheus, info
+      metrics:
+        export:
+          prometheus:
+            enabled: true
+      endpoint:
+        health:
+          show-details: always
+          probes:
+            enabled: true
+    
+    azure:
+      servicebus:
+        environment: ${ENVIRONMENT:default}
+        auth:
+          mode: connection_string
+          connection-string: ${AZURE_SERVICEBUS_CONNECTION_STRING}
+        entities:
+          filter: ".*"
+          types:
+            - queue
+            - topic
+            - subscription
+        include-namespace-metrics: true
+        metrics:
+          cache-duration: 60s
+          scrape-interval: 60s
+    
+    logging:
+      level:
+        root: INFO
+        gavgas.azureservicebusmetricexporter: INFO
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-servicebus-exporter-secret
+  namespace: monitoring
+type: Opaque
+data:
+  AZURE_SERVICEBUS_CONNECTION_STRING: "RW5kcG9pbnQ9c2I6Ly95b3VyLXNlcnZpY2UtYnVzLm5hbWVzcGFjZS53aW5kb3dzLm5ldC87U2hhcmVkQWNjZXNzS2V5TmFtZT1Sb290TWFuYWdlU2hhcmVkQWNjZXNzS2V5O1NoYXJlZEFjY2Vzc0tleT15b3VyLWtleQ=="  # Base64 encoded placeholder - REPLACE THIS!
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azure-servicebus-exporter
+  namespace: monitoring
+  labels:
+    app: azure-servicebus-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: azure-servicebus-exporter
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: azure-servicebus-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      containers:
+        - name: azure-servicebus-exporter
+          image: yourdockerregistry/azure-servicebus-metric-exporter:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: azure-servicebus-exporter-env
+                  key: ENVIRONMENT
+                  optional: true
+            - name: AZURE_SERVICEBUS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: azure-servicebus-exporter-secret
+                  key: AZURE_SERVICEBUS_CONNECTION_STRING
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=85.0 -Xlog:gc*"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config
+      volumes:
+        - name: config-volume
+          configMap:
+            name: azure-servicebus-exporter-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: azure-servicebus-exporter
+  namespace: monitoring
+  labels:
+    app: azure-servicebus-exporter
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: azure-servicebus-exporter
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-servicebus-exporter-env
+  namespace: monitoring
+data:
+  ENVIRONMENT: "production"  # Change this for different environments

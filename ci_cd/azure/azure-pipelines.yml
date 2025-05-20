@@ -1,0 +1,154 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - src/**
+      - build.gradle
+      - Dockerfile
+      - kubernetes/**
+      - helm/**
+
+variables:
+  # Build variables
+  gradleVersion: '8.13'
+  jdkVersion: '21'
+  
+  # Docker variables
+  dockerRegistry: '$(ACR_LOGIN_SERVER)'
+  imageName: 'azure-servicebus-metric-exporter'
+  imageTag: '$(Build.BuildNumber)'
+  
+  # Kubernetes variables
+  kubernetesServiceConnection: 'AzureK8sConnection'
+  namespace: 'monitoring'
+  
+  # Environment-specific variables (set in pipeline)
+  # ENVIRONMENT: 'dev', 'qa', 'prod'
+  # AZURE_SERVICEBUS_CONNECTION_STRING: ''
+
+stages:
+  - stage: Build
+    displayName: 'Build and Test'
+    jobs:
+      - job: BuildJob
+        displayName: 'Build & Test Job'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: Gradle@2
+            displayName: 'Build with Gradle'
+            inputs:
+              gradleWrapperFile: 'gradlew'
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '1.$(jdkVersion)'
+              gradleOptions: '-Xmx3072m'
+              tasks: 'clean build'
+              publishJUnitResults: true
+              testResultsFiles: '**/TEST-*.xml'
+
+          - task: CopyFiles@2
+            displayName: 'Copy JAR to staging'
+            inputs:
+              SourceFolder: 'build/libs'
+              Contents: '*.jar'
+              TargetFolder: '$(Build.ArtifactStagingDirectory)/app'
+
+          - task: CopyFiles@2
+            displayName: 'Copy Deployment Files'
+            inputs:
+              Contents: |
+                Dockerfile
+                kubernetes/**
+                helm/**
+                scripts/**
+              TargetFolder: '$(Build.ArtifactStagingDirectory)/deploy'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Artifacts'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'drop'
+              publishLocation: 'Container'
+
+  - stage: Docker
+    displayName: 'Build and Push Docker Image'
+    dependsOn: Build
+    jobs:
+      - job: DockerJob
+        displayName: 'Docker Job'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              buildType: 'current'
+              downloadType: 'specific'
+              itemPattern: '**/*'
+              downloadPath: '$(System.ArtifactsDirectory)'
+
+          - task: Docker@2
+            displayName: 'Build Docker Image'
+            inputs:
+              command: 'build'
+              Dockerfile: '$(System.ArtifactsDirectory)/drop/deploy/Dockerfile'
+              buildContext: '$(System.ArtifactsDirectory)/drop'
+              tags: |
+                $(imageTag)
+                latest
+
+          - task: Docker@2
+            displayName: 'Push Docker Image'
+            inputs:
+              containerRegistry: '$(dockerRegistry)'
+              repository: '$(imageName)'
+              command: 'push'
+              tags: |
+                $(imageTag)
+                latest
+
+  - stage: DeployDev
+    displayName: 'Deploy to Dev'
+    dependsOn: Docker
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
+    variables:
+      ENVIRONMENT: 'dev'
+    jobs:
+      - deployment: DeployDev
+        displayName: 'Deploy to Dev Environment'
+        environment: 'Development'
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: deploy-template.yml
+                  parameters:
+                    environment: $(ENVIRONMENT)
+                    namespace: $(namespace)-dev
+                    connectionString: $(DEV_AZURE_SERVICEBUS_CONNECTION_STRING)
+
+  - stage: DeployProd
+    displayName: 'Deploy to Production'
+    dependsOn: Docker
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    variables:
+      ENVIRONMENT: 'prod'
+    jobs:
+      - deployment: DeployProd
+        displayName: 'Deploy to Production Environment'
+        environment: 'Production'
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: deploy-template.yml
+                  parameters:
+                    environment: $(ENVIRONMENT)
+                    namespace: $(namespace)
+                    connectionString: $(PROD_AZURE_SERVICEBUS_CONNECTION_STRING)

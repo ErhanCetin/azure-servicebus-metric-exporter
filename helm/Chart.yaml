@@ -1,0 +1,18 @@
+apiVersion: v2
+name: azure-servicebus-metric-exporter
+description: A Helm chart for Azure Service Bus Metric Exporter
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Gavgas
+    email: your-email@example.com
+keywords:
+  - azure
+  - servicebus
+  - metrics
+  - prometheus
+  - monitoring
+home: https://github.com/yourusername/azure-servicebus-metric-exporter
+sources:
+  - https://github.com/yourusername/azure-servicebus-metric-exporter

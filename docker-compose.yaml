@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  azure-servicebus-exporter:
+    build: .
+    image: azure-servicebus-metric-exporter:latest
+    container_name: azure-servicebus-exporter
+    ports:
+      - "8080:8080"
+    environment:
+      - ENVIRONMENT=local
+      - AZURE_SERVICEBUS_CONNECTION_STRING=${AZURE_SERVICEBUS_CONNECTION_STRING}
+      - JAVA_OPTS=-XX:+UseContainerSupport -XX:MaxRAMPercentage=85.0 -Xlog:gc*:file=/logs/gc.log
+    volumes:
+      - ./logs:/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    depends_on:
+      - azure-servicebus-exporter
+
+  grafana:
+    image: grafana/grafana:10.0.3
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-storage:

@@ -1,5 +1,6 @@
 package gavgas.azureservicebusmetricexporter.metrics;
 
+import gavgas.azureservicebusmetricexporter.config.ServiceBusProperties;
 import gavgas.azureservicebusmetricexporter.model.NamespaceMetric;
 import gavgas.azureservicebusmetricexporter.model.QueueMetric;
 import gavgas.azureservicebusmetricexporter.model.SubscriptionMetric;
@@ -15,6 +16,8 @@ import org.springframework.stereotype.Component;
 import jakarta.annotation.PostConstruct;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -22,16 +25,22 @@ public class ServiceBusMetricsCollector {
 
     private final MeterRegistry meterRegistry;
     private final ServiceBusClientService serviceBusClientService;
+    private final ServiceBusProperties serviceBusProperties;
+
+    // Pattern to extract environment from entity name (e.g., dev-*, qa-*, prod-*)
+    private static final Pattern ENV_PATTERN = Pattern.compile("^(dev\\d*|qa|prod|test|uat|stage|staging)-(.*)$");
 
     // Keep track of registered gauge functions to avoid duplicates
     private final Map<String, Object> registeredMetrics = new HashMap<>();
 
     public ServiceBusMetricsCollector(MeterRegistry meterRegistry,
-                                      ServiceBusClientService serviceBusClientService) {
+                                      ServiceBusClientService serviceBusClientService,
+                                      ServiceBusProperties serviceBusProperties) {
         this.meterRegistry = meterRegistry;
         this.serviceBusClientService = serviceBusClientService;
+        this.serviceBusProperties = serviceBusProperties;
 
-        log.info("ServiceBusMetricsCollector initialized");
+        log.info("ServiceBusMetricsCollector initialized with environment: {}", serviceBusProperties.getEnvironment());
     }
 
     @PostConstruct
@@ -61,12 +70,38 @@ public class ServiceBusMetricsCollector {
         log.info("Metrics collected successfully.");
     }
 
+    /**
+     * Extract environment from entity name based on prefix
+     * Examples: dev-cdp-event -> dev, dev1-cdp-event -> dev1, qa-cdp-event -> qa
+     */
+    private String extractEnvironment(String entityName) {
+        if (entityName == null || entityName.isEmpty()) {
+            return serviceBusProperties.getEnvironment();
+        }
+
+        Matcher matcher = ENV_PATTERN.matcher(entityName);
+        if (matcher.matches()) {
+            return matcher.group(1); // Return the environment prefix
+        }
+
+        return serviceBusProperties.getEnvironment();
+    }
+
     private void registerAllMetrics() {
         // Register queue metrics
         for (QueueMetric queue : serviceBusClientService.getQueueMetrics()) {
             String queueName = queue.getName();
             String namespace = queue.getNamespace();
-            Tags tags = Tags.of("entity_type", "queue", "entity_name", queueName, "namespace", namespace);
+
+            // Extract environment from queue name or use default
+            String environment = extractEnvironment(queueName);
+
+            Tags tags = Tags.of(
+                "entity_type", "queue",
+                "entity_name", queueName,
+                "namespace", namespace,
+                "environment", environment
+            );
 
             String metricId = "queue_active_" + namespace + "_" + queueName;
             if (!registeredMetrics.containsKey(metricId)) {
@@ -150,7 +185,16 @@ public class ServiceBusMetricsCollector {
         for (TopicMetric topic : serviceBusClientService.getTopicMetrics()) {
             String topicName = topic.getName();
             String namespace = topic.getNamespace();
-            Tags tags = Tags.of("entity_type", "topic", "entity_name", topicName, "namespace", namespace);
+
+            // Extract environment from topic name or use default
+            String environment = extractEnvironment(topicName);
+
+            Tags tags = Tags.of(
+                "entity_type", "topic",
+                "entity_name", topicName,
+                "namespace", namespace,
+                "environment", environment
+            );
 
             String metricId = "topic_size_" + namespace + "_" + topicName;
             if (!registeredMetrics.containsKey(metricId)) {
@@ -192,12 +236,16 @@ public class ServiceBusMetricsCollector {
             String namespace = sub.getNamespace();
             String entityName = topicName + "/" + subscriptionName;
 
+            // Extract environment from topic name or use default
+            String environment = extractEnvironment(topicName);
+
             Tags tags = Tags.of(
                 "entity_type", "subscription",
                 "entity_name", entityName,
                 "namespace", namespace,
                 "topic_name", topicName,
-                "subscription_name", subscriptionName
+                "subscription_name", subscriptionName,
+                "environment", environment
             );
 
             String metricId = "sub_active_" + namespace + "_" + topicName + "_" + subscriptionName;
@@ -240,7 +288,14 @@ public class ServiceBusMetricsCollector {
         // Register namespace metrics
         for (NamespaceMetric ns : serviceBusClientService.getNamespaceMetrics()) {
             String namespace = ns.getNamespace();
-            Tags tags = Tags.of("namespace", namespace);
+
+            // For namespace, use the configured environment
+            String environment = serviceBusProperties.getEnvironment();
+
+            Tags tags = Tags.of(
+                "namespace", namespace,
+                "environment", environment
+            );
 
             String metricId = "namespace_connections_" + namespace;
             if (!registeredMetrics.containsKey(metricId)) {
@@ -261,7 +316,11 @@ public class ServiceBusMetricsCollector {
             for (Map.Entry<String, Double> entry : ns.getQuotaUsage().entrySet()) {
                 String quotaName = entry.getKey();
 
-                Tags quotaTags = Tags.of("namespace", namespace, "quota_name", quotaName);
+                Tags quotaTags = Tags.of(
+                    "namespace", namespace,
+                    "quota_name", quotaName,
+                    "environment", environment
+                );
 
                 metricId = "namespace_quota_" + namespace + "_" + quotaName;
                 if (!registeredMetrics.containsKey(metricId)) {

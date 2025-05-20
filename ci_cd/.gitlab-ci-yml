@@ -1,0 +1,124 @@
+image: gradle:8.13-jdk21-alpine
+
+variables:
+  # Gradle variables
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+
+  # Docker variables
+  DOCKER_REGISTRY: "${CI_REGISTRY}"
+  IMAGE_NAME: "${CI_REGISTRY_IMAGE}"
+  IMAGE_TAG: "${CI_COMMIT_SHORT_SHA}"
+
+# Cache dependencies
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .gradle/
+
+stages:
+  - build
+  - test
+  - package
+  - deploy-dev
+  - deploy-prod
+
+build:
+  stage: build
+  script:
+    - gradle clean assemble
+  artifacts:
+    paths:
+      - build/libs/*.jar
+    expire_in: 1 week
+
+test:
+  stage: test
+  script:
+    - gradle test
+  artifacts:
+    reports:
+      junit: build/test-results/test/TEST-*.xml
+
+package:
+  stage: package
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest .
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+    - docker push $IMAGE_NAME:latest
+  only:
+    - main
+    - develop
+
+deploy-dev:
+  stage: deploy-dev
+  image:
+    name: dtzar/helm-kubectl:latest
+    entrypoint: [""]
+  variables:
+    ENVIRONMENT: "dev"
+    NAMESPACE: "monitoring-dev"
+  script:
+    - echo "Deploying to DEV environment..."
+    - kubectl config use-context $KUBE_CONTEXT_DEV
+    - kubectl get namespace $NAMESPACE || kubectl create namespace $NAMESPACE
+    - |
+      # Create/update ConfigMap and Secret
+      kubectl -n $NAMESPACE create configmap azure-servicebus-exporter-env \
+        --from-literal=ENVIRONMENT=$ENVIRONMENT \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+      kubectl -n $NAMESPACE create secret generic azure-servicebus-exporter-secret \
+        --from-literal=AZURE_SERVICEBUS_CONNECTION_STRING="$DEV_CONNECTION_STRING" \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    # Deploy with Helm
+    - helm upgrade --install azure-sb-exporter-$ENVIRONMENT ./helm \
+        --namespace $NAMESPACE \
+        --set image.repository=$IMAGE_NAME \
+        --set image.tag=$IMAGE_TAG \
+        --set env.ENVIRONMENT=$ENVIRONMENT
+  environment:
+    name: development
+    url: https://dev.example.com
+  only:
+    - develop
+
+deploy-prod:
+  stage: deploy-prod
+  image:
+    name: dtzar/helm-kubectl:latest
+    entrypoint: [""]
+  variables:
+    ENVIRONMENT: "prod"
+    NAMESPACE: "monitoring"
+  script:
+    - echo "Deploying to PROD environment..."
+    - kubectl config use-context $KUBE_CONTEXT_PROD
+    - kubectl get namespace $NAMESPACE || kubectl create namespace $NAMESPACE
+    - |
+      # Create/update ConfigMap and Secret
+      kubectl -n $NAMESPACE create configmap azure-servicebus-exporter-env \
+        --from-literal=ENVIRONMENT=$ENVIRONMENT \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+      kubectl -n $NAMESPACE create secret generic azure-servicebus-exporter-secret \
+        --from-literal=AZURE_SERVICEBUS_CONNECTION_STRING="$PROD_CONNECTION_STRING" \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    # Deploy with Helm
+    - helm upgrade --install azure-sb-exporter-$ENVIRONMENT ./helm \
+        --namespace $NAMESPACE \
+        --set image.repository=$IMAGE_NAME \
+        --set image.tag=$IMAGE_TAG \
+        --set env.ENVIRONMENT=$ENVIRONMENT
+  environment:
+    name: production
+    url: https://prod.example.com
+  only:
+    - main
+  when: manual

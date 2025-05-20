@@ -8,18 +8,12 @@ spring:
 server:
   port: 8080
   shutdown: graceful
-  profiles:
-    active: local
 
 management:
   endpoints:
     web:
       exposure:
         include: health, prometheus, info
-  metrics:
-    export:
-      prometheus:
-        enabled: true
   endpoint:
     health:
       show-details: always
@@ -28,10 +22,10 @@ management:
 
 azure:
   servicebus:
+    environment: default
     auth:
       mode: connection_string
-      connection-string:  ${AZURE_SERVICEBUS_CONNECTION_STRING}
-
+      connection-string: ${AZURE_SERVICEBUS_CONNECTION_STRING}
     entities:
       # Regular expression to filter entities e.g. "dev-.*"
       filter: ".*"
@@ -54,3 +48,4 @@ azure:
 logging:
   level:
     root: INFO
+    gavgas.azureservicebusmetricexporter: INFO

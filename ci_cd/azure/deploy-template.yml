@@ -1,0 +1,69 @@
+parameters:
+  - name: environment
+    type: string
+    default: 'dev'
+  - name: namespace
+    type: string
+    default: 'monitoring'
+  - name: connectionString
+    type: string
+  - name: useHelm
+    type: boolean
+    default: true
+
+steps:
+  - task: HelmInstaller@1
+    displayName: 'Install Helm'
+    condition: eq('${{ parameters.useHelm }}', true)
+    inputs:
+      helmVersionToInstall: 'latest'
+
+  - task: KubernetesManifest@0
+    displayName: 'Create Namespace'
+    inputs:
+      action: 'createNamespace'
+      kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+      namespace: '${{ parameters.namespace }}'
+
+  - task: KubernetesManifest@0
+    displayName: 'Create ConfigMap and Secret'
+    inputs:
+      action: 'createSecret'
+      kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+      namespace: '${{ parameters.namespace }}'
+      secretType: 'generic'
+      secretName: 'azure-servicebus-exporter-secret'
+      secretArguments: '--from-literal=AZURE_SERVICEBUS_CONNECTION_STRING="${{ parameters.connectionString }}"'
+
+  - task: KubernetesManifest@0
+    displayName: 'Create Environment ConfigMap'
+    inputs:
+      action: 'createSecret'
+      kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+      namespace: '${{ parameters.namespace }}'
+      secretType: 'generic'
+      secretName: 'azure-servicebus-exporter-env'
+      secretArguments: '--from-literal=ENVIRONMENT="${{ parameters.environment }}"'
+
+  - task: HelmDeploy@0
+    displayName: 'Deploy with Helm'
+    condition: eq('${{ parameters.useHelm }}', true)
+    inputs:
+      connectionType: 'Kubernetes Service Connection'
+      kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+      namespace: '${{ parameters.namespace }}'
+      command: 'upgrade'
+      chartType: 'FilePath'
+      chartPath: '$(System.ArtifactsDirectory)/drop/deploy/helm'
+      releaseName: 'azure-sb-exporter-${{ parameters.environment }}'
+      arguments: '--set image.repository=$(dockerRegistry)/$(imageName) --set image.tag=$(imageTag) --set env.ENVIRONMENT=${{ parameters.environment }} --set-string azureServiceBus.connectionString=${{ parameters.connectionString }} --create-namespace'
+
+  - task: KubernetesManifest@0
+    displayName: 'Deploy with kubectl'
+    condition: eq('${{ parameters.useHelm }}', false)
+    inputs:
+      action: 'deploy'
+      kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+      namespace: '${{ parameters.namespace }}'
+      manifests: '$(System.ArtifactsDirectory)/drop/deploy/kubernetes/deployment.yaml'
+      containers: '$(dockerRegistry)/$(imageName):$(imageTag)'
