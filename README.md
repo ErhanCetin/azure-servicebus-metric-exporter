@@ -1,211 +1,268 @@
 # Azure Service Bus Prometheus Exporter
 
-A Spring Boot application that exports Azure Service Bus metrics to Prometheus.
+A comprehensive Spring Boot application that collects and exports Azure Service Bus metrics to Prometheus format for monitoring and alerting.
 
 ## Features
 
-- Collects Service Bus metrics via Azure SDK for Java
-- Exposes metrics in Prometheus format via Spring Boot Actuator
-- Supports queues, topics, and subscriptions
-- Entity filtering with regex patterns
-- Metric caching to reduce API calls
-- Ready-to-use Kubernetes deployment and Helm chart
-- Support for both Azure Kubernetes Service (AKS) and Google Kubernetes Engine (GKE)
+- **Comprehensive Metrics Collection**: Collects detailed metrics for queues, topics, and subscriptions
+- **Prometheus Integration**: Exposes metrics in Prometheus format via Spring Boot Actuator
+- **Real-time Monitoring**: Configurable scrape intervals for up-to-date metrics
+- **Environment Detection**: Automatic environment tagging based on entity naming patterns
+- **Efficient Caching**: Internal metric caching to reduce API calls to Azure
+- **Containerized Deployment**: Docker and Kubernetes ready with sample configurations
+- **Grafana Dashboards**: Pre-built Grafana dashboards for visualization
+- **CI/CD Support**: Sample pipelines for GitLab and Azure DevOps
 
-## Metrics
-
-The exporter collects the following Azure Service Bus metrics:
+## Metrics Exported
 
 ### Queue Metrics
-- Active Messages
-- Dead-lettered Messages
-- Scheduled Messages
-- Transfer Messages
-- Transfer Dead-lettered Messages
+- Active Messages Count
+- Dead Letter Messages Count
+- Scheduled Messages Count
+- Transfer Messages Count
 - Size in Bytes
-- Total Messages
-- Queue Creation Time
-- Queue Update Time
-- Queue Access Time
+- Total Messages Count
 
 ### Topic Metrics
 - Size in Bytes
 - Subscription Count
 
 ### Subscription Metrics
-- Active Messages
-- Dead-lettered Messages
-- Transfer Messages
-- Transfer Dead-lettered Messages
+- Active Messages Count
+- Dead Letter Messages Count
+- Transfer Messages Count
+- Transfer Dead Letter Messages
 
-## Configuration
+### Namespace Metrics
+- Active Connections
+- Quota Usage Percentages
 
-The application can be configured using the `application.yml` file or environment variables.
+## Getting Started
 
-### Configuration Properties
+### Prerequisites
+
+- Java 21 or higher
+- Azure Service Bus namespace with proper access rights
+- Docker (for containerized deployment)
+- Prometheus (for metrics collection)
+- Grafana (for visualization)
+
+### Configuration
+
+Configure the application through `application.yaml` or environment variables:
 
 ```yaml
 azure:
   servicebus:
+    # Environment name for tagging metrics
+    environment: ${ENVIRONMENT:default}
     auth:
       mode: connection_string
-      connection-string: ${SB_CONNECTION_STRING:}
+      connection-string: ${AZURE_SERVICEBUS_CONNECTION_STRING}
     entities:
+      # RegEx pattern to filter entities
       filter: ".*"
-      types: queue, topic, subscription
+      # Entity types to collect metrics for
+      types:
+        - queue
+        - topic
+        - subscription
+    # Include namespace-level metrics
     include-namespace-metrics: true
     metrics:
-      namespace: azure_servicebus
+      # Cache duration to reduce API calls
       cache-duration: 60s
+      # Collection interval
       scrape-interval: 60s
-    namespaces:
-      - defaultNamespace
 ```
 
-### Environment Variables
+### Running Locally
 
-- `SB_CONNECTION_STRING`: Azure Service Bus connection string
-
-## API Endpoints
-
-- `/actuator/prometheus`: Prometheus metrics endpoint
-- `/actuator/health`: Health check endpoint
-- `/probe/metrics`: Raw metrics in JSON format
-- `/probe/metrics/list`: List of available entities
-- `/probe/metrics/resource`: Metrics for a specific entity
-- `/status`: Application status information
-- `/query`: Development UI for testing
-
-## Usage
-
-### Using Docker
-
-```bash
-docker run -p 8080:8080 \
-  -e SB_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=yourkeyhere" \
-  yourregistry/azure-servicebus-exporter:latest
-```
-
-### Using Kubernetes
-
-```bash
-# Create a secret with your connection string
-kubectl create secret generic azure-servicebus-exporter \
-  --from-literal=connection-string="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=yourkeyhere"
-
-# Apply the Kubernetes manifests
-kubectl apply -f kubernetes/
-
-# Or use Helm
-helm install azure-servicebus-exporter ./helm/azure-servicebus-exporter
-```
-
-### Local Development
-
-```bash
-# Build the application
-./gradlew clean build
-
-# Run the application
-java -jar build/libs/azure-servicebus-exporter-1.0.0.jar
-
-# Run with Gradle bootRun
-./gradlew bootRun
-```
-
-## Building
-
-### Building the JAR
+Build and run the application:
 
 ```bash
 ./gradlew clean build
+java -jar build/libs/azure-servicebus-metric-exporter-*.jar
 ```
 
-### Building the Docker Image
+### Docker Deployment
+
+Use the included Docker Compose setup for a complete monitoring stack:
 
 ```bash
-./gradlew bootBuildImage --imageName=yourregistry/azure-servicebus-exporter:latest
+# Set your connection string
+export AZURE_SERVICEBUS_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=key;SharedAccessKey=value"
+export ENVIRONMENT="dev"
+
+# Deploy with Docker Compose
+docker-compose up -d
 ```
 
-## Prometheus Configuration
+This will start:
+- The Azure Service Bus Exporter
+- Prometheus for metrics collection
+- Grafana for visualization
 
-```yaml
-scrape_configs:
-  - job_name: 'azure-servicebus'
-    scrape_interval: 1m
-    static_configs:
-      - targets: ['azure-servicebus-exporter:8080']
-    metrics_path: /actuator/prometheus
+### Kubernetes Deployment
+
+Deploy to Kubernetes using either raw manifests or Helm:
+
+```bash
+# Using raw manifests
+kubectl create namespace monitoring
+kubectl -n monitoring create secret generic azure-servicebus-exporter-secret \
+  --from-literal=AZURE_SERVICEBUS_CONNECTION_STRING="your-connection-string"
+kubectl apply -f kubernetes/deployment.yaml
+
+# Using Helm
+helm upgrade --install azure-sb-exporter ./helm \
+  --namespace monitoring \
+  --set env.ENVIRONMENT=prod \
+  --set azureServiceBus.connectionString="your-connection-string"
 ```
 
-## Project Structure
+## Accessing Metrics
+
+After deployment, the following endpoints are available:
+
+- **Prometheus Metrics**: http://localhost:8080/actuator/prometheus
+- **Health Status**: http://localhost:8080/actuator/health
+- **Application Info**: http://localhost:8080/actuator/info
+- **Custom Probe Metrics**: http://localhost:8080/probe/metrics
+- **Entity List**: http://localhost:8080/probe/metrics/list
+- **Specific Entity Metrics**: http://localhost:8080/probe/metrics/resource?type=queue&name=yourQueueName
+- **Application Status**: http://localhost:8080/status
+- **Query UI**: http://localhost:8080/query
+
+## Environment Detection
+
+The exporter automatically detects environments from entity naming patterns:
+
+- Entity names like `dev-entity-name` will be tagged with environment `dev`
+- Entity names like `prod-entity-name` will be tagged with environment `prod`
+- Entity names without recognized patterns will use the default environment from configuration
+
+## Grafana Dashboard
+
+A pre-built Grafana dashboard is included in the `grafana` directory. Import the JSON file to get:
+
+- Overview of all Service Bus metrics
+- Entity-specific visualizations
+- Environment-based filtering
+- Active and dead letter message tracking
+- Size monitoring
+
+## CI/CD Integration
+
+Sample CI/CD pipelines are provided for:
+
+- **GitLab**: See `ci_cd/.gitlab-ci.yml`
+- **Azure DevOps**: See `ci_cd/azure/azure-pipelines.yml`
+
+These pipelines include:
+- Building and testing the application
+- Creating and pushing Docker images
+- Deploying to Kubernetes clusters
+- Environment-specific configurations
+
+## Development
+
+### Project Structure
 
 ```
-azure-servicebus-exporter/
+azure-servicebus-metric-exporter/
 ├── src/
-│   └── main/
-│       ├── java/com/example/azureservicebusexporter/
-│       │   ├── AzureServiceBusExporterApplication.java
-│       │   ├── config/
-│       │   │   ├── ServiceBusClientConfig.java
-│       │   │   └── ServiceBusProperties.java
-│       │   ├── controller/
-│       │   │   ├── ProbeController.java
-│       │   │   └── StatusController.java
-│       │   ├── health/
-│       │   │   └── ServiceBusHealthIndicator.java
-│       │   ├── metrics/
-│       │   │   └── ServiceBusMetricsCollector.java
-│       │   ├── model/
-│       │   │   ├── NamespaceMetric.java
-│       │   │   ├── QueueMetric.java
-│       │   │   ├── SubscriptionMetric.java
-│       │   │   └── TopicMetric.java
-│       │   └── service/
-│       │       └── ServiceBusClientService.java
-│       └── resources/
-│           └── application.yml
-├── build.gradle
-├── settings.gradle
-├── gradlew
-├── gradlew.bat
-├── Dockerfile
-└── kubernetes/
-    ├── configmap.yaml
-    ├── deployment.yaml
-    ├── secret.yaml
-    ├── service.yaml
-    └── serviceaccount.yaml
+│   ├── main/
+│   │   ├── java/gavgas/azureservicebusmetricexporter/
+│   │   │   ├── AzureServicebusMetricExporterApplication.java
+│   │   │   ├── config/
+│   │   │   ├── controller/
+│   │   │   ├── health/
+│   │   │   ├── metrics/
+│   │   │   ├── model/
+│   │   │   └── service/
+│   │   └── resources/
+│   └── test/
+├── helm/                 # Helm chart for Kubernetes deployment
+├── kubernetes/           # Raw Kubernetes manifests
+├── ci_cd/                # CI/CD pipelines for GitLab and Azure
+├── grafana/              # Grafana dashboards and documentation
+├── Dockerfile            # Multi-stage Docker build
+├── docker-compose.yaml   # Complete monitoring stack
+└── README.md
+```
+
+### Key Components
+
+- **ServiceBusClientService**: Collects metrics from Azure Service Bus
+- **ServiceBusMetricsCollector**: Registers metrics with Prometheus registry
+- **ProbeController**: Provides JSON API for metrics
+- **StatusController**: Application status and UI for testing
+
+### Building
+
+```bash
+# Build JAR
+./gradlew clean build
+
+# Build Docker image
+docker build -t yourregistry/azure-servicebus-metric-exporter:latest .
+
+# Push Docker image
+docker push yourregistry/azure-servicebus-metric-exporter:latest
+```
+
+## Extending the Project
+
+### Adding New Metrics
+
+To add new metrics:
+
+1. Update the model classes in `model/` directory
+2. Modify `ServiceBusClientService` to collect the new metrics
+3. Update `ServiceBusMetricsCollector` to register the new metrics with Prometheus
+
+### Custom Dashboards
+
+Additional Grafana dashboards can be created by:
+
+1. Using the Query UI at `/query` to experiment with metrics
+2. Building custom panels in Grafana
+3. Exporting the dashboard as JSON
+
+## Troubleshooting
+
+### Common Issues
+
+- **No metrics appearing**: Check connection string and access permissions
+- **Missing entities**: Verify entity filter regex in configuration
+- **Connection errors**: Check network access to Azure Service Bus namespace
+- **Performance issues**: Adjust cache duration and scrape interval
+
+### Checking Status
+
+```bash
+# Check application status
+curl http://localhost:8080/actuator/health
+
+# View Docker logs
+docker logs azure-servicebus-exporter
+
+# Check Prometheus targets
+curl http://localhost:9090/targets
 ```
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
+## Acknowledgments
 
-Doğru endpoint'lere erişmek için aşağıdaki URL'leri kullanın:
+- Azure Messaging SDK for Java
+- Spring Boot and Spring Actuator
+- Micrometer and Prometheus
+- Grafana for visualization
 
-Prometheus Metrikleri için: http://localhost:8080/actuator/prometheus
-Sağlık Durumu için: http://localhost:8080/actuator/health
-Uygulama Bilgileri için: http://localhost:8080/actuator/info
+---
 
-Ayrıca, özel API endpoint'leri için:
-
-Özel API Metrikleri için: http://localhost:8080/probe/metrics
-Varlık Listesi için: http://localhost:8080/probe/metrics/list
-Belirli Kaynak için: http://localhost:8080/probe/metrics/resource?type=queue&name=yourQueueName
-Durum Bilgisi için: http://localhost:8080/status
-Sorgu UI için: http://localhost:8080/query
-
-
-
-İleri Adımlar
-Şimdi herşey düzgün çalışıyor, ama daha da geliştirebilirsiniz:
-
-Metrik Dokümantasyonu: Her metriğin ne anlama geldiğini açıklayan bir doküman hazırlayın.
-Grafana Dashboard Template: Kullanıcılar için önceden hazırlanmış bir Grafana dashboard template'i oluşturun.
-Özel Metrikler: İşletme ihtiyaçlarınıza göre özel metrikler ekleyin (örn. kuyruk mesaj yaşı, işleme süreleri, hata oranları).
-Konfigürasyon Seçenekleri: Daha fazla yapılandırma seçeneği ekleyin (örn. hangi metriklerin toplanacağını seçme).
-PromQL Örnekleri: Yaygın kullanım senaryoları için PromQL sorgu örnekleri sağlayın.
-
-Tebrikler! Azure Service Bus metriklerini Prometheus formatında sunmayı başarıyla tamamladınız. Artık bu metrikleri izleyebilir, görselleştirebilir ve alarmlar oluşturabilirsiniz.RetryClaude can make mistakes. Please double-check responses.
+*Further documentation and examples are available in the project's wiki.*
