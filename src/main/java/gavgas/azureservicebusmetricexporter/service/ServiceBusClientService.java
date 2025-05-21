@@ -1,8 +1,10 @@
 package gavgas.azureservicebusmetricexporter.service;
 
+import com.azure.core.http.rest.PagedIterable;
 import com.azure.messaging.servicebus.administration.ServiceBusAdministrationClient;
 import com.azure.messaging.servicebus.administration.models.QueueRuntimeProperties;
 import com.azure.messaging.servicebus.administration.models.SubscriptionRuntimeProperties;
+import com.azure.messaging.servicebus.administration.models.TopicProperties;
 import com.azure.messaging.servicebus.administration.models.TopicRuntimeProperties;
 import gavgas.azureservicebusmetricexporter.config.ServiceBusClientConfig;
 import gavgas.azureservicebusmetricexporter.config.ServiceBusProperties;
@@ -200,7 +202,14 @@ public class ServiceBusClientService {
 
         try {
             log.info("Collecting Service Bus topic metrics");
-            adminClient.listTopics().forEach(topicProperties -> {
+            PagedIterable<TopicProperties> topics = adminClient.listTopics();
+
+            if (topics == null) {
+                log.warn("listTopics() returned null - skipping topic metrics collection");
+                return;
+            }
+
+            topics.forEach(topicProperties -> {
                 String topicName = topicProperties.getName();
 
                 // Apply both entity filter and environment filter

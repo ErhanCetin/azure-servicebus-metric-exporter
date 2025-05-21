@@ -16,7 +16,6 @@ import org.springframework.stereotype.Component;
 import jakarta.annotation.PostConstruct;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -26,9 +25,6 @@ public class ServiceBusMetricsCollector {
     private final MeterRegistry meterRegistry;
     private final ServiceBusClientService serviceBusClientService;
     private final ServiceBusProperties serviceBusProperties;
-
-    // Pattern to extract environment from entity name (e.g., dev-*, qa-*, prod-*)
-    private static final Pattern ENV_PATTERN = Pattern.compile("^(dev\\d*|qa|prod|test|uat|stage|staging)-(.*)$");
 
     // Keep track of registered gauge functions to avoid duplicates
     private final Map<String, Object> registeredMetrics = new HashMap<>();
