@@ -9,14 +9,14 @@ import gavgas.azureservicebusmetricexporter.service.ServiceBusClientService;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import jakarta.annotation.PostConstruct;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.regex.Pattern;
+import java.util.function.ToLongFunction;
 
 @Slf4j
 @Component
@@ -35,20 +35,11 @@ public class ServiceBusMetricsCollector {
         this.meterRegistry = meterRegistry;
         this.serviceBusClientService = serviceBusClientService;
         this.serviceBusProperties = serviceBusProperties;
-
-        log.info("ServiceBusMetricsCollector initialized with environment: {}", serviceBusProperties.getEnvironment());
     }
 
     @PostConstruct
     public void init() {
         log.info("Initializing ServiceBusMetricsCollector");
-
-        // First, initialize a simple test gauge
-        Gauge.builder("azure_servicebus_test", () -> 42)
-             .description("Test metric to verify Prometheus integration")
-             .register(meterRegistry);
-
-        log.info("Test gauge registered");
 
         // Initial fetch of metrics
         serviceBusClientService.collectMetrics();
@@ -59,101 +50,65 @@ public class ServiceBusMetricsCollector {
         log.info("All metrics registered");
     }
 
-    @Scheduled(fixedDelayString = "${azure.servicebus.metrics.scrape-interval:60000}")
-    public void collectMetrics() {
-        log.info("Scheduled metric collection started");
-        serviceBusClientService.collectMetrics();
-        log.info("Metrics collected successfully.");
-    }
-
-
     private void registerAllMetrics() {
         // Register queue metrics
         for (QueueMetric queue : serviceBusClientService.getQueueMetrics()) {
             String queueName = queue.getName();
             String namespace = queue.getNamespace();
 
-            Tags tags = Tags.of(
-                "entity_type", "queue",
-                "entity_name", queueName,
-                "namespace", namespace,
-                "environment", serviceBusProperties.getEnvironment()
-            );
+            Tags tags = Tags.of("entity_type",
+                                "queue",
+                                "entity_name",
+                                queueName,
+                                "namespace",
+                                namespace,
+                                "environment",
+                                serviceBusProperties.getEnvironment());
 
-            String metricId = "queue_active_" + namespace + "_" + queueName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_active_messages", () -> {
-                         return serviceBusClientService.getQueueMetrics().stream()
-                                                       .filter(q -> q.getName().equals(queueName) && q.getNamespace().equals(namespace))
-                                                       .mapToLong(QueueMetric::getActiveMessages)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Number of active messages in the queue")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register active messages metric
+            registerQueueMetric("queue_active_",
+                                "azure_servicebus_active_messages",
+                                queueName,
+                                namespace,
+                                tags,
+                                "Number of active messages in the queue",
+                                QueueMetric::getActiveMessages);
 
-            metricId = "queue_deadletter_" + namespace + "_" + queueName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_dead_letter_messages", () -> {
-                         return serviceBusClientService.getQueueMetrics().stream()
-                                                       .filter(q -> q.getName().equals(queueName) && q.getNamespace().equals(namespace))
-                                                       .mapToLong(QueueMetric::getDeadLetterMessages)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Number of dead letter messages in the queue")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register dead letter messages metric
+            registerQueueMetric("queue_deadletter_",
+                                "azure_servicebus_dead_letter_messages",
+                                queueName,
+                                namespace,
+                                tags,
+                                "Number of dead letter messages in the queue",
+                                QueueMetric::getDeadLetterMessages);
 
-            metricId = "queue_scheduled_" + namespace + "_" + queueName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_scheduled_messages", () -> {
-                         return serviceBusClientService.getQueueMetrics().stream()
-                                                       .filter(q -> q.getName().equals(queueName) && q.getNamespace().equals(namespace))
-                                                       .mapToLong(QueueMetric::getScheduledMessages)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Number of scheduled messages in the queue")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register scheduled messages metric
+            registerQueueMetric("queue_scheduled_",
+                                "azure_servicebus_scheduled_messages",
+                                queueName,
+                                namespace,
+                                tags,
+                                "Number of scheduled messages in the queue",
+                                QueueMetric::getScheduledMessages);
 
-            metricId = "queue_size_" + namespace + "_" + queueName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_size_bytes", () -> {
-                         return serviceBusClientService.getQueueMetrics().stream()
-                                                       .filter(q -> q.getName().equals(queueName) && q.getNamespace().equals(namespace))
-                                                       .mapToLong(QueueMetric::getSizeBytes)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Size of the queue in bytes")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register size bytes metric
+            registerQueueMetric("queue_size_",
+                                "azure_servicebus_size_bytes",
+                                queueName,
+                                namespace,
+                                tags,
+                                "Size of the queue in bytes",
+                                QueueMetric::getSizeBytes);
 
-            metricId = "queue_total_" + namespace + "_" + queueName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_total_messages", () -> {
-                         return serviceBusClientService.getQueueMetrics().stream()
-                                                       .filter(q -> q.getName().equals(queueName) && q.getNamespace().equals(namespace))
-                                                       .mapToLong(QueueMetric::getTotalMessages)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Total number of messages in the queue")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register total messages metric
+            registerQueueMetric("queue_total_",
+                                "azure_servicebus_total_messages",
+                                queueName,
+                                namespace,
+                                tags,
+                                "Total number of messages in the queue",
+                                QueueMetric::getTotalMessages);
 
             log.info("Registered metrics for queue: {}", queueName);
         }
@@ -163,42 +118,32 @@ public class ServiceBusMetricsCollector {
             String topicName = topic.getName();
             String namespace = topic.getNamespace();
 
-            Tags tags = Tags.of(
-                "entity_type", "topic",
-                "entity_name", topicName,
-                "namespace", namespace,
-                "environment", serviceBusProperties.getEnvironment()
-            );
+            Tags tags = Tags.of("entity_type",
+                                "topic",
+                                "entity_name",
+                                topicName,
+                                "namespace",
+                                namespace,
+                                "environment",
+                                serviceBusProperties.getEnvironment());
 
-            String metricId = "topic_size_" + namespace + "_" + topicName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_size_bytes", () -> {
-                         return serviceBusClientService.getTopicMetrics().stream()
-                                                       .filter(t -> t.getName().equals(topicName) && t.getNamespace().equals(namespace))
-                                                       .mapToLong(TopicMetric::getSizeBytes)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Size of the topic in bytes")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register size bytes metric
+            registerTopicMetric("topic_size_",
+                                "azure_servicebus_size_bytes",
+                                topicName,
+                                namespace,
+                                tags,
+                                "Size of the topic in bytes",
+                                TopicMetric::getSizeBytes);
 
-            metricId = "topic_subscription_count_" + namespace + "_" + topicName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_subscription_count", () -> {
-                         return serviceBusClientService.getTopicMetrics().stream()
-                                                       .filter(t -> t.getName().equals(topicName) && t.getNamespace().equals(namespace))
-                                                       .mapToLong(TopicMetric::getSubscriptionCount)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Number of subscriptions for the topic")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register subscription count metric
+            registerTopicMetric("topic_subscription_count_",
+                                "azure_servicebus_subscription_count",
+                                topicName,
+                                namespace,
+                                tags,
+                                "Number of subscriptions for the topic",
+                                TopicMetric::getSubscriptionCount);
 
             log.info("Registered metrics for topic: {}", topicName);
         }
@@ -210,48 +155,38 @@ public class ServiceBusMetricsCollector {
             String namespace = sub.getNamespace();
             String entityName = topicName + "/" + subscriptionName;
 
-            Tags tags = Tags.of(
-                "entity_type", "subscription",
-                "entity_name", entityName,
-                "namespace", namespace,
-                "topic_name", topicName,
-                "subscription_name", subscriptionName,
-                "environment", serviceBusProperties.getEnvironment()
-            );
+            Tags tags = Tags.of("entity_type",
+                                "subscription",
+                                "entity_name",
+                                entityName,
+                                "namespace",
+                                namespace,
+                                "topic_name",
+                                topicName,
+                                "subscription_name",
+                                subscriptionName,
+                                "environment",
+                                serviceBusProperties.getEnvironment());
 
-            String metricId = "sub_active_" + namespace + "_" + topicName + "_" + subscriptionName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_active_messages", () -> {
-                         return serviceBusClientService.getSubscriptionMetrics().stream()
-                                                       .filter(s -> s.getTopicName().equals(topicName) &&
-                                                           s.getName().equals(subscriptionName) &&
-                                                           s.getNamespace().equals(namespace))
-                                                       .mapToLong(SubscriptionMetric::getActiveMessages)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Number of active messages in the subscription")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register active messages metric
+            registerSubscriptionMetric("sub_active_",
+                                       "azure_servicebus_active_messages",
+                                       topicName,
+                                       subscriptionName,
+                                       namespace,
+                                       tags,
+                                       "Number of active messages in the subscription",
+                                       SubscriptionMetric::getActiveMessages);
 
-            metricId = "sub_deadletter_" + namespace + "_" + topicName + "_" + subscriptionName;
-            if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_dead_letter_messages", () -> {
-                         return serviceBusClientService.getSubscriptionMetrics().stream()
-                                                       .filter(s -> s.getTopicName().equals(topicName) &&
-                                                           s.getName().equals(subscriptionName) &&
-                                                           s.getNamespace().equals(namespace))
-                                                       .mapToLong(SubscriptionMetric::getDeadLetterMessages)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
-                     .tags(tags)
-                     .description("Number of dead letter messages in the subscription")
-                     .register(meterRegistry);
-                registeredMetrics.put(metricId, true);
-            }
+            // Register dead letter messages metric
+            registerSubscriptionMetric("sub_deadletter_",
+                                       "azure_servicebus_dead_letter_messages",
+                                       topicName,
+                                       subscriptionName,
+                                       namespace,
+                                       tags,
+                                       "Number of dead letter messages in the subscription",
+                                       SubscriptionMetric::getDeadLetterMessages);
 
             log.info("Registered metrics for subscription: {}/{}", topicName, subscriptionName);
         }
@@ -259,8 +194,6 @@ public class ServiceBusMetricsCollector {
         // Register namespace metrics
         for (NamespaceMetric ns : serviceBusClientService.getNamespaceMetrics()) {
             String namespace = ns.getNamespace();
-
-            // For namespace, use the configured environment
             String environment = serviceBusProperties.getEnvironment();
 
             Tags tags = Tags.of(
@@ -270,13 +203,13 @@ public class ServiceBusMetricsCollector {
 
             String metricId = "namespace_connections_" + namespace;
             if (!registeredMetrics.containsKey(metricId)) {
-                Gauge.builder("azure_servicebus_active_connections", () -> {
-                         return serviceBusClientService.getNamespaceMetrics().stream()
-                                                       .filter(n -> n.getNamespace().equals(namespace))
-                                                       .mapToLong(NamespaceMetric::getActiveConnections)
-                                                       .findFirst()
-                                                       .orElse(0);
-                     })
+                Gauge.builder("azure_servicebus_active_connections",
+                              () -> serviceBusClientService.getNamespaceMetrics()
+                                                           .stream()
+                                                           .filter(n -> n.getNamespace().equals(namespace))
+                                                           .mapToLong(NamespaceMetric::getActiveConnections)
+                                                           .findFirst()
+                                                           .orElse(0))
                      .tags(tags)
                      .description("Number of active connections")
                      .register(meterRegistry);
@@ -295,14 +228,15 @@ public class ServiceBusMetricsCollector {
 
                 metricId = "namespace_quota_" + namespace + "_" + quotaName;
                 if (!registeredMetrics.containsKey(metricId)) {
-                    Gauge.builder("azure_servicebus_quota_usage_percentage", () -> {
-                             return serviceBusClientService.getNamespaceMetrics().stream()
-                                                           .filter(n -> n.getNamespace().equals(namespace))
-                                                           .filter(n -> n.getQuotaUsage().containsKey(quotaName))
-                                                           .map(n -> n.getQuotaUsage().get(quotaName))
-                                                           .findFirst()
-                                                           .orElse(0.0);
-                         })
+                    final String finalQuotaName = quotaName;
+                    Gauge.builder("azure_servicebus_quota_usage_percentage",
+                                  () -> serviceBusClientService.getNamespaceMetrics()
+                                                               .stream()
+                                                               .filter(n -> n.getNamespace().equals(namespace))
+                                                               .filter(n -> n.getQuotaUsage().containsKey(finalQuotaName))
+                                                               .map(n -> n.getQuotaUsage().get(finalQuotaName))
+                                                               .findFirst()
+                                                               .orElse(0.0))
                          .tags(quotaTags)
                          .description("Percentage of quota used")
                          .register(meterRegistry);
@@ -312,5 +246,78 @@ public class ServiceBusMetricsCollector {
 
             log.info("Registered metrics for namespace: {}", namespace);
         }
+    }
+
+    private void registerQueueMetric(String metricPrefix,
+                                     String metricName,
+                                     String queueName,
+                                     String namespace,
+                                     Tags tags,
+                                     String desc,
+                                     ToLongFunction<QueueMetric> valueFunction) {
+        String metricId = metricPrefix + namespace + "_" + queueName;
+
+        Gauge.builder(metricName,
+                      () -> serviceBusClientService.getQueueMetrics()
+                                                   .stream()
+                                                   .filter(q -> q.getName().equals(queueName) && q.getNamespace().equals(namespace))
+                                                   .mapToLong(valueFunction)
+                                                   .findFirst()
+                                                   .orElse(0)).tags(tags).description(desc).register(meterRegistry);
+
+        registeredMetrics.put(metricId, true);
+    }
+
+    private void registerTopicMetric(String metricPrefix,
+                                     String metricName,
+                                     String topicName,
+                                     String namespace,
+                                     Tags tags,
+                                     String desc,
+                                     ToLongFunction<TopicMetric> valueFunction) {
+        String metricId = metricPrefix + namespace + "_" + topicName;
+
+        Gauge.builder(metricName,
+                      () -> serviceBusClientService.getTopicMetrics()
+                                                   .stream()
+                                                   .filter(t -> t.getName().equals(topicName) && t.getNamespace().equals(namespace))
+                                                   .mapToLong(valueFunction)
+                                                   .findFirst()
+                                                   .orElse(0)).tags(tags).description(desc).register(meterRegistry);
+
+        registeredMetrics.put(metricId, true);
+
+    }
+
+    /**
+     * Generic method to register a subscription metric.
+     */
+    private void registerSubscriptionMetric(String metricPrefix,
+                                            String metricName,
+                                            String topicName,
+                                            String subscriptionName,
+                                            String namespace,
+                                            Tags tags,
+                                            String desc,
+                                            ToLongFunction<SubscriptionMetric> valueFunction) {
+        String metricId = metricPrefix + namespace + "_" + topicName + "_" + subscriptionName;
+
+        Gauge.builder(metricName,
+                      () -> serviceBusClientService.getSubscriptionMetrics()
+                                                   .stream()
+                                                   .filter(s -> s.getTopicName().equals(topicName) && s.getName().equals(subscriptionName)
+                                                       && s.getNamespace().equals(namespace))
+                                                   .mapToLong(valueFunction)
+                                                   .findFirst()
+                                                   .orElse(0)).tags(tags).description(desc).register(meterRegistry);
+
+        registeredMetrics.put(metricId, true);
+    }
+
+    @Scheduled(fixedDelayString = "${azure.servicebus.metrics.scrape-interval:60000}")
+    public void collectMetrics() {
+        log.info("Scheduled metric collection started");
+        serviceBusClientService.collectMetrics();
+        log.info("Metrics collected successfully.");
     }
 }
