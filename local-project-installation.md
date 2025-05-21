@@ -14,7 +14,10 @@ Aşağıdaki yazılımların sisteminizde yüklü olduğundan emin olun:
 ```bash
 export ENVIRONMENT="dev"
 export AZURE_SERVICEBUS_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=<your SharedAccessKeyName>;SharedAccessKey=<your SharedAccessKey>"
-sh deploy-docker.sh -c "$AZURE_SERVICEBUS_CONNECTION_STRING"
+# Make sure your environment variables are actually set. You can check with:
+echo $AZURE_SERVICEBUS_CONNECTION_STRING
+echo $ENVIRONMENT
+sh deploy-docker.sh -c "${AZURE_SERVICEBUS_CONNECTION_STRING}" -e "${ENVIRONMENT}"
 ```
 
 ## 2. Uygulama Derleme
@@ -53,6 +56,24 @@ Eğer sadece imajı oluşturmak isterseniz:
 ```bash
 docker-compose build
 ```
+
+## if you change something and wants to create image of project and redeploy
+```bash
+docker-compose down
+# deploy-docker.sh kullanarak
+sh deploy-docker.sh --action build
+# Veya manuel olarak
+./gradlew clean build
+docker build -t azure-servicebus-metric-exporter:latest .
+
+export ENVIRONMENT="dev"
+export AZURE_SERVICEBUS_CONNECTION_STRING="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=<your SharedAccessKeyName>;SharedAccessKey=<your SharedAccessKey>"
+# Make sure your environment variables are actually set. You can check with:
+echo $AZURE_SERVICEBUS_CONNECTION_STRING
+echo $ENVIRONMENT
+sh deploy-docker.sh -c "${AZURE_SERVICEBUS_CONNECTION_STRING}" -e "${ENVIRONMENT}"
+```
+
 
 ## 5. Hizmetlere Erişim
 

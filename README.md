@@ -252,7 +252,37 @@ docker logs azure-servicebus-exporter
 curl http://localhost:9090/targets
 ```
 
-## License
+## Sample Scenarios for Environment Filter
+
+Example Scenarios
+
+### Scenario 1: entity.filter=".*" (All entities)
+
+Environment: "dev"
+Entity Filter: ".*" (matches everything)
+Environment Filter: "^dev.*" (only those starting with "dev")
+Result: Only entities starting with "dev" will be collected
+
+### Scenario 2: entity.filter="cdp-.*" (Only those starting with cdp-)
+
+Environment: "dev"
+Entity Filter: "cdp-.*"
+Environment Filter: "^dev.*"
+Result: No entity metrics will be collected because an entity cannot start with both "dev" and "cdp-"
+
+### Scenario 3: entity.filter=".-cdp-." (Those containing -cdp-)
+
+Environment: "dev"
+Entity Filter: ".-cdp-."
+Environment Filter: "^dev.*"
+Result: Entities matching the "dev-cdp-*" pattern will be collected (e.g., "dev-cdp-event", "dev1-cdp-batch")
+
+### Scenario 4: entity.filter=".event$" (Those ending with event)
+
+Environment: "qa"
+Entity Filter: ".*event$"
+Environment Filter: "^qa.*"
+Result: Entities matching the "qa*event" pattern (e.g., "qa-cdp-event", "qa1-test-event")
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 

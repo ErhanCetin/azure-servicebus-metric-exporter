@@ -70,22 +70,6 @@ public class ServiceBusMetricsCollector {
         log.info("Metrics collected successfully.");
     }
 
-    /**
-     * Extract environment from entity name based on prefix
-     * Examples: dev-cdp-event -> dev, dev1-cdp-event -> dev1, qa-cdp-event -> qa
-     */
-    private String extractEnvironment(String entityName) {
-        if (entityName == null || entityName.isEmpty()) {
-            return serviceBusProperties.getEnvironment();
-        }
-
-        Matcher matcher = ENV_PATTERN.matcher(entityName);
-        if (matcher.matches()) {
-            return matcher.group(1); // Return the environment prefix
-        }
-
-        return serviceBusProperties.getEnvironment();
-    }
 
     private void registerAllMetrics() {
         // Register queue metrics
@@ -93,14 +77,11 @@ public class ServiceBusMetricsCollector {
             String queueName = queue.getName();
             String namespace = queue.getNamespace();
 
-            // Extract environment from queue name or use default
-            String environment = extractEnvironment(queueName);
-
             Tags tags = Tags.of(
                 "entity_type", "queue",
                 "entity_name", queueName,
                 "namespace", namespace,
-                "environment", environment
+                "environment", serviceBusProperties.getEnvironment()
             );
 
             String metricId = "queue_active_" + namespace + "_" + queueName;
@@ -186,14 +167,11 @@ public class ServiceBusMetricsCollector {
             String topicName = topic.getName();
             String namespace = topic.getNamespace();
 
-            // Extract environment from topic name or use default
-            String environment = extractEnvironment(topicName);
-
             Tags tags = Tags.of(
                 "entity_type", "topic",
                 "entity_name", topicName,
                 "namespace", namespace,
-                "environment", environment
+                "environment", serviceBusProperties.getEnvironment()
             );
 
             String metricId = "topic_size_" + namespace + "_" + topicName;
@@ -236,16 +214,13 @@ public class ServiceBusMetricsCollector {
             String namespace = sub.getNamespace();
             String entityName = topicName + "/" + subscriptionName;
 
-            // Extract environment from topic name or use default
-            String environment = extractEnvironment(topicName);
-
             Tags tags = Tags.of(
                 "entity_type", "subscription",
                 "entity_name", entityName,
                 "namespace", namespace,
                 "topic_name", topicName,
                 "subscription_name", subscriptionName,
-                "environment", environment
+                "environment", serviceBusProperties.getEnvironment()
             );
 
             String metricId = "sub_active_" + namespace + "_" + topicName + "_" + subscriptionName;

@@ -22,7 +22,7 @@ management:
 
 azure:
   servicebus:
-    environment: default
+    environment: dev
     auth:
       mode: connection_string
       connection-string: ${AZURE_SERVICEBUS_CONNECTION_STRING}

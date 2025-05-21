@@ -34,6 +34,7 @@ public class ServiceBusClientService {
 
     private Instant lastUpdate = Instant.EPOCH;
     private String namespace;
+    private Pattern environmentFilter;
 
     public ServiceBusClientService(
         ServiceBusAdministrationClient adminClient,
@@ -43,17 +44,53 @@ public class ServiceBusClientService {
         this.properties = properties;
         this.namespace = clientConfig.getNamespace();
 
-        log.info("ServiceBusClientService initialized for namespace: {}", namespace);
+        // Initialize environment filter pattern based on configured environment
+        initEnvironmentFilter();
+
+        log.info("ServiceBusClientService initialized for namespace: {}, environment: {}",
+                 namespace, properties.getEnvironment());
+    }
+
+    /**
+     * Initialize the environment filter pattern based on the configured environment
+     */
+    private void initEnvironmentFilter() {
+        String environment = properties.getEnvironment();
+        if (environment != null && !environment.isEmpty()) {
+            // Create pattern that matches entity names starting with the environment value
+            // e.g., if environment=dev, pattern will match "dev", "dev1", "dev-cdp", etc.
+            String pattern = "^" + environment + ".*";
+            environmentFilter = Pattern.compile(pattern);
+            log.info("Environment filter initialized for environment '{}' with pattern: {}",
+                     environment, pattern);
+        } else {
+            // If no environment is specified, accept all entity names
+            environmentFilter = Pattern.compile(".*");
+            log.warn("No environment specified, all entities will be considered");
+        }
+    }
+
+    /**
+     * Check if an entity name matches the environment filter
+     * @param entityName The name of the entity to check
+     * @return true if the entity name should be included, false otherwise
+     */
+    private boolean matchesEnvironmentFilter(String entityName) {
+        if (entityName == null || entityName.isEmpty()) {
+            return false;
+        }
+
+        boolean matches = environmentFilter.matcher(entityName).matches();
+        if (!matches) {
+            log.debug("Entity '{}' filtered out by environment filter ({})",
+                      entityName, properties.getEnvironment());
+        }
+        return matches;
     }
 
     public void collectMetrics() {
-        //   but allows multiple threads to read existing metrics at the same time.
         cacheLock.readLock().lock();
         try {
-            // - If the cache-duration specified in the configuration has not expired and this is not the first run,
-            //   the method uses the existing cache data and exits early.
-            // - This optimizes performance and cost by using data that has been cached for a certain period of time,
-            //   instead of making an API call to the Service Bus for each request.
             Duration timeSinceLastUpdate = Duration.between(lastUpdate, Instant.now());
             if (timeSinceLastUpdate.compareTo(properties.getMetrics().getCacheDuration()) < 0 &&
                 !lastUpdate.equals(Instant.EPOCH)) {
@@ -64,7 +101,6 @@ public class ServiceBusClientService {
             cacheLock.readLock().unlock();
         }
 
-        //  prevents multiple threads from collecting metrics at the same time
         cacheLock.writeLock().lock();
         try {
             log.info("Starting metric collection");
@@ -105,12 +141,19 @@ public class ServiceBusClientService {
 
         try {
             log.info("Collecting Service Bus queue metrics");
+
+            // Check if queue metrics are enabled in configuration
+            if (!properties.getEntities().getTypes().contains("queue")) {
+                log.info("Queue metrics collection is disabled in configuration");
+                return;  // Skip entirely if queue type is not enabled
+            }
+
             adminClient.listQueues().forEach(queueProperties -> {
                 String queueName = queueProperties.getName();
 
-                // Apply entity filter
+                // Apply both entity filter and environment filter
                 if (!entityFilter.matcher(queueName).matches() ||
-                    !properties.getEntities().getTypes().contains("queue")) {
+                    !matchesEnvironmentFilter(queueName)) {
                     return;
                 }
 
@@ -149,14 +192,20 @@ public class ServiceBusClientService {
     private void collectTopics() {
         Pattern entityFilter = properties.getEntities().getCompiledFilter();
 
+        // Check if queue metrics are enabled in configuration
+        if (!properties.getEntities().getTypes().contains("topic")) {
+            log.info("Queue metrics collection is disabled in configuration");
+            return;  // Skip entirely if topic type is not enabled
+        }
+
         try {
             log.info("Collecting Service Bus topic metrics");
             adminClient.listTopics().forEach(topicProperties -> {
                 String topicName = topicProperties.getName();
 
-                // Apply entity filter
+                // Apply both entity filter and environment filter
                 if (!entityFilter.matcher(topicName).matches() ||
-                    !properties.getEntities().getTypes().contains("topic")) {
+                    !matchesEnvironmentFilter(topicName)) {
                     return;
                 }
 
@@ -191,12 +240,17 @@ public class ServiceBusClientService {
     }
 
     private void collectSubscriptions(String topicName, Pattern entityFilter) {
+        // Skip subscriptions if the topic doesn't match environment filter
+        if (!matchesEnvironmentFilter(topicName)) {
+            return;
+        }
+
         try {
             adminClient.listSubscriptions(topicName).forEach(subscriptionProperties -> {
                 String subscriptionName = subscriptionProperties.getSubscriptionName();
                 String entityName = topicName + "/" + subscriptionName;
 
-                // Apply entity filter
+                // Apply entity filter - environment already checked for topic
                 if (!entityFilter.matcher(entityName).matches()) {
                     return;
                 }
@@ -229,7 +283,6 @@ public class ServiceBusClientService {
     }
 
     public List<QueueMetric> getQueueMetrics() {
-        // so that other threads cannot change the list
         cacheLock.readLock().lock();
         try {
             return new ArrayList<>(queueMetrics);
@@ -239,7 +292,6 @@ public class ServiceBusClientService {
     }
 
     public List<TopicMetric> getTopicMetrics() {
-        // so that other threads cannot change the list
         cacheLock.readLock().lock();
         try {
             return new ArrayList<>(topicMetrics);
@@ -249,7 +301,6 @@ public class ServiceBusClientService {
     }
 
     public List<SubscriptionMetric> getSubscriptionMetrics() {
-        // so that other threads cannot change the list
         cacheLock.readLock().lock();
         try {
             return new ArrayList<>(subscriptionMetrics);
@@ -259,7 +310,6 @@ public class ServiceBusClientService {
     }
 
     public List<NamespaceMetric> getNamespaceMetrics() {
-        // so that other threads cannot change the list
         cacheLock.readLock().lock();
         try {
             return new ArrayList<>(namespaceMetrics);
